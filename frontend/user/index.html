@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Feature Check | Feature Flag System</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f0f2f5; color: #1a1a2e; min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: #0f3460; color: #fff; padding: 14px 28px; }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 36px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 100%; max-width: 460px; }
+    h2 { font-size: 1.2rem; margin-bottom: 6px; }
+    .subtitle { font-size: 0.85rem; color: #888; margin-bottom: 26px; }
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 5px; color: #555; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.95rem; outline: none; background: #fff; transition: border-color 0.2s; }
+    input:focus, select:focus { border-color: #0f3460; }
+    .form-group { margin-bottom: 16px; }
+    button { width: 100%; background: #0f3460; color: #fff; border: none; padding: 12px; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 600; transition: background 0.2s; margin-top: 4px; }
+    button:hover { background: #16213e; }
+    .result { margin-top: 20px; padding: 18px; border-radius: 8px; text-align: center; }
+    .result.enabled { background: #d4edda; border: 1px solid #c3e6cb; }
+    .result.disabled { background: #f8d7da; border: 1px solid #f5c6cb; }
+    .result.error { background: #fff3cd; border: 1px solid #ffeeba; }
+    .result-icon { font-size: 2.2rem; margin-bottom: 8px; }
+    .result-status { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
+    .result.enabled .result-status { color: #155724; }
+    .result.disabled .result-status { color: #721c24; }
+    .result.error .result-status { color: #856404; }
+    .result-detail { font-size: 0.85rem; color: #555; }
+    .key-display { font-family: monospace; font-size: 0.9rem; background: #f0f2f5; padding: 2px 8px; border-radius: 4px; }
+    #result-box { display: none; }
+    .loading { text-align: center; color: #888; font-size: 0.9rem; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Feature Flag Checker</h1>
+</header>
+
+<main>
+  <div class="card">
+    <h2>Check Feature Status</h2>
+    <p class="subtitle">Enter your organization and a feature key to check if it's enabled.</p>
+
+    <div class="form-group">
+      <label>Organization</label>
+      <select id="org-select">
+        <option value="">Loading organizations...</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Feature Key</label>
+      <input type="text" id="feature-key" placeholder="e.g. dark_mode" />
+    </div>
+
+    <button onclick="checkFlag()">Check Feature</button>
+
+    <div id="result-box"></div>
+  </div>
+</main>
+
+<script>
+  const API = 'http://localhost:4000/api';
+
+  async function loadOrgs() {
+    try {
+      const res = await fetch(`${API}/user/organizations`);
+      const orgs = await res.json();
+      const sel = document.getElementById('org-select');
+      if (!orgs.length) {
+        sel.innerHTML = '<option value="">No organizations available</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">-- Select Organization --</option>' +
+        orgs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+    } catch {
+      document.getElementById('org-select').innerHTML = '<option value="">Failed to load organizations</option>';
+    }
+  }
+
+  async function checkFlag() {
+    const org_id = document.getElementById('org-select').value;
+    const feature_key = document.getElementById('feature-key').value.trim();
+    const box = document.getElementById('result-box');
+
+    if (!org_id) {
+      showResult('error', '⚠️', 'Select an Organization', 'Please select your organization first.');
+      return;
+    }
+    if (!feature_key) {
+      showResult('error', '⚠️', 'Enter a Feature Key', 'Please enter a feature key to check.');
+      return;
+    }
+
+    box.style.display = 'block';
+    box.innerHTML = '<p class="loading">Checking...</p>';
+
+    try {
+      const res = await fetch(`${API}/user/check-flag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ org_id: parseInt(org_id), feature_key })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showResult('error', '⚠️', 'Not Found', data.error);
+        return;
+      }
+
+      if (data.enabled) {
+        showResult('enabled', '✅', 'Feature Enabled',
+          `<span class="key-display">${data.feature_key}</span> is <strong>enabled</strong> for <strong>${data.org}</strong>`);
+      } else {
+        showResult('disabled', '❌', 'Feature Disabled',
+          `<span class="key-display">${data.feature_key}</span> is <strong>disabled</strong> for <strong>${data.org}</strong>`);
+      }
+    } catch {
+      showResult('error', '⚠️', 'Connection Error', 'Unable to reach the server. Make sure the backend is running.');
+    }
+  }
+
+  function showResult(type, icon, status, detail) {
+    const box = document.getElementById('result-box');
+    box.style.display = 'block';
+    box.innerHTML = `
+      <div class="result ${type}">
+        <div class="result-icon">${icon}</div>
+        <div class="result-status">${status}</div>
+        <div class="result-detail">${detail}</div>
+      </div>`;
+  }
+
+  // Allow Enter key to submit
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') checkFlag();
+  });
+
+  loadOrgs();
+</script>
+</body>
+</html>
